@@ -210,6 +210,20 @@ async def progress(current, total, message: Message, text: str):
                 pass
 
 
+async def cleanup_session(client: Client, chat_id: int, session_id: str, message_id: int, user_temp_dir: str):
+    await asyncio.sleep(120)
+    if chat_id in extracted_sessions and session_id in extracted_sessions[chat_id]:
+        shutil.rmtree(user_temp_dir, ignore_errors=True)
+        del extracted_sessions[chat_id][session_id]
+        try:
+            await client.edit_message_text(
+                chat_id, 
+                message_id, 
+                "⏳ **Session Expired**\nFiles were automatically deleted from the server after 2 minutes of inactivity to save space."
+            )
+        except Exception:
+            pass
+
 @app.on_message(filters.document | filters.photo | filters.audio | filters.video)
 async def handle_docs(client: Client, message: Message):
     if not await check_force_sub(client, message):
@@ -285,7 +299,15 @@ async def handle_docs(client: Client, message: Message):
                     keyboard.append([InlineKeyboardButton("❌ Cancel & Delete", callback_data=f"cancelzip_{session_id}")])
                     
                     reply_markup = InlineKeyboardMarkup(keyboard)
-                    await status_msg.edit_text(f"✅ Extracted {len(extracted_files)} files. Select what to download:", reply_markup=reply_markup)
+                    await status_msg.edit_text(
+                        f"✅ Extracted {len(extracted_files)} files.\n\n"
+                        f"⚠️ **Note:** Files will be automatically deleted after 2 minutes of inactivity.\n\n"
+                        f"Select what to download:", 
+                        reply_markup=reply_markup
+                    )
+                    
+                    # Schedule 2-minute cleanup
+                    asyncio.create_task(cleanup_session(client, chat_id, session_id, status_msg.id, user_temp_dir))
                             
             except zipfile.BadZipFile:
                 await status_msg.edit_text("❌ The file provided is not a valid zip archive.")
