@@ -120,7 +120,7 @@ async def zip_files_command(client: Client, message: Message):
         
         await status_msg.edit_text("📤 Uploading your Zip archive. This might take a while for large files...")
         
-        caption = f"**@QualityPixels - archive.zip**\nFile Type: .zip"
+        caption = f"**👉🏽 @QualityPixels - archive**\n**👉🏽 File Type: ZIP**"
         await client.send_document(
             chat_id, 
             zip_filename,
@@ -175,8 +175,9 @@ async def merge_files_command(client: Client, message: Message):
                         
         await status_msg.edit_text("📤 Uploading your merged file. This might take a while...")
         
-        _, ext = os.path.splitext(merged_filename)
-        caption = f"**@QualityPixels - {base_name}**\nFile Type: {ext}"
+        base, ext = os.path.splitext(os.path.basename(merged_filename))
+        ext_clean = ext.replace('.', '').upper()
+        caption = f"**👉🏽 {base}**\n**👉🏽 File Type: {ext_clean}**"
         await client.send_document(
             chat_id, 
             merged_filename,
@@ -401,8 +402,9 @@ async def handle_callbacks(client: Client, query):
                     ext_file = new_path
                     extracted_files[i] = new_path
                     
-                _, ext = os.path.splitext(ext_file)
-                caption = f"**{os.path.basename(ext_file)}**\nFile Type: {ext}"
+                base, ext = os.path.splitext(os.path.basename(ext_file))
+                ext_clean = ext.replace('.', '').upper()
+                caption = f"**👉🏽 {base}**\n**👉🏽 File Type: {ext_clean}**"
                 
                 up_msg = await query.message.reply_text(f"📤 Uploading {os.path.basename(ext_file)}...")
                 try:
@@ -437,8 +439,9 @@ async def handle_callbacks(client: Client, query):
                         ext_file = new_path
                         extracted_files[idx] = new_path
                         
-                    _, ext = os.path.splitext(ext_file)
-                    caption = f"**{os.path.basename(ext_file)}**\nFile Type: {ext}"
+                    base, ext = os.path.splitext(os.path.basename(ext_file))
+                    ext_clean = ext.replace('.', '').upper()
+                    caption = f"**👉🏽 {base}**\n**👉🏽 File Type: {ext_clean}**"
                     
                     up_msg = await query.message.reply_text(f"📤 Uploading {os.path.basename(ext_file)}...")
                     try:
