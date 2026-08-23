@@ -6,13 +6,16 @@ from aiohttp import web
 from pyrogram import Client, filters, enums
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from pyrogram.errors import UserNotParticipant
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Telegram Credentials
-API_ID = 31516136
-API_HASH = '3ccee26e3abeb0cdfe41b2816e73f0c7'
-BOT_TOKEN = '8868979560:AAG0UwCj1FLllCqh84LqeBg4E4ekODJUPlI'
+API_ID = int(os.environ.get('API_ID', 0))
+API_HASH = os.environ.get('API_HASH', '')
+BOT_TOKEN = os.environ.get('BOT_TOKEN', '')
 
-FORCE_SUB_CHANNEL = "QualityPixels"
+FORCE_SUB_CHANNEL = os.environ.get('FORCE_SUB_CHANNEL', '')
 
 app = Client(
     "zip_bot_session",
