@@ -61,13 +61,13 @@ async def send_welcome(client: Client, message: Message):
     if not await check_force_sub(client, message):
         return
     welcome_text = (
-        "Need to Zip, Unzip, Merge files? This bot makes it simple!\n\n"
+        "An Exclusive Bot from @QualityPixels\n\n"
         "✨ Features:\n"
-        "🔹 Zip multiple files into one ZIP\n"
-        "🔹 Unzip archives easily\n"
-        "🔹 Support for .001, .002, .003 split files\n"
-        "🔹 Multiple files can be queued\n"
-        "🔹 Fast and simple processing\n\n"
+        "1. Zip multiple files into one ZIP\n"
+        "2. Unzip archives easily\n"
+        "3. Support for .001, .002, .003 split files\n"
+        "4. Multiple files can be queued\n"
+        "5. Fast and simple processing\n\n"
         "**How to use:**\n"
         "👉 Send a `.zip` file to **Unzip** it automatically.\n"
         "👉 Send multiple files and type `/zip` to **Zip** them.\n"
