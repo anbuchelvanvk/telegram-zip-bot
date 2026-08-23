@@ -1,6 +1,8 @@
 import os
 import zipfile
 import shutil
+import asyncio
+from aiohttp import web
 from pyrogram import Client, filters, enums
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from pyrogram.errors import UserNotParticipant
@@ -303,6 +305,26 @@ async def handle_docs(client: Client, message: Message):
         await message.reply_text(f"❌ An error occurred: {e}")
 
 
+async def handle_web(request):
+    return web.Response(text="Bot is running!")
+
+async def start_web_server():
+    web_app = web.Application()
+    web_app.router.add_get('/', handle_web)
+    runner = web.AppRunner(web_app)
+    await runner.setup()
+    port = int(os.environ.get("PORT", 8080))
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    print(f"Web server started on port {port}")
+
+async def main():
+    await start_web_server()
+    await app.start()
+    print("🚀 Bot is starting up on Render Free Tier! (2GB Limit unlocked!)")
+    from pyrogram import idle
+    await idle()
+    await app.stop()
+
 if __name__ == '__main__':
-    print("🚀 Bot is starting up on Koyeb! (2GB Limit unlocked!)")
-    app.run()
+    asyncio.run(main())
