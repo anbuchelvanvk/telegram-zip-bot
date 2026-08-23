@@ -28,6 +28,7 @@ app = Client(
 )
 
 user_files = {}
+extracted_sessions = {}
 
 TEMP_DIR = "temp_files"
 os.makedirs(TEMP_DIR, exist_ok=True)
@@ -254,24 +255,38 @@ async def handle_docs(client: Client, message: Message):
                 
                 if not extracted_files:
                     await status_msg.edit_text("⚠️ The zip file was empty.")
+                    shutil.rmtree(user_temp_dir, ignore_errors=True)
                 else:
-                    await status_msg.edit_text(f"📤 Uploading {len(extracted_files)} extracted files...")
-                    for ext_file in extracted_files:
-                        up_msg = await message.reply_text(f"📤 Uploading {os.path.basename(ext_file)}...")
-                        await client.send_document(
-                            chat_id, 
-                            ext_file,
-                            progress=progress,
-                            progress_args=(up_msg, f"📤 Uploading {os.path.basename(ext_file)}...")
-                        )
-                        await up_msg.delete()
-                    await status_msg.edit_text("✅ All files extracted and uploaded!")
+                    session_id = str(message.id)
+                    if chat_id not in extracted_sessions:
+                        extracted_sessions[chat_id] = {}
+                    
+                    extracted_sessions[chat_id][session_id] = {
+                        "dir": user_temp_dir,
+                        "files": extracted_files
+                    }
+                    
+                    keyboard = []
+                    keyboard.append([InlineKeyboardButton("📤 Send All Files", callback_data=f"sendall_{session_id}")])
+                    
+                    # Limit to 50 files to avoid telegram limit on buttons
+                    for idx, ext_file in enumerate(extracted_files[:50]):
+                        filename = os.path.basename(ext_file)
+                        keyboard.append([InlineKeyboardButton(filename, callback_data=f"sendfile_{session_id}_{idx}")])
+                    
+                    if len(extracted_files) > 50:
+                        keyboard.append([InlineKeyboardButton(f"...and {len(extracted_files)-50} more", callback_data="ignore")])
+                        
+                    keyboard.append([InlineKeyboardButton("❌ Cancel & Delete", callback_data=f"cancelzip_{session_id}")])
+                    
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+                    await status_msg.edit_text(f"✅ Extracted {len(extracted_files)} files. Select what to download:", reply_markup=reply_markup)
                             
             except zipfile.BadZipFile:
                 await status_msg.edit_text("❌ The file provided is not a valid zip archive.")
+                shutil.rmtree(user_temp_dir, ignore_errors=True)
             except Exception as e:
                 await status_msg.edit_text(f"❌ Error unzipping: {e}")
-            finally:
                 shutil.rmtree(user_temp_dir, ignore_errors=True)
                 
         else:
@@ -309,6 +324,86 @@ async def handle_docs(client: Client, message: Message):
             
     except Exception as e:
         await message.reply_text(f"❌ An error occurred: {e}")
+
+
+@app.on_callback_query()
+async def handle_callbacks(client: Client, query):
+    data = query.data
+    chat_id = query.message.chat.id
+    
+    if data == "ignore":
+        await query.answer()
+        return
+        
+    if data.startswith("sendfile_") or data.startswith("sendall_") or data.startswith("cancelzip_"):
+        parts = data.split("_")
+        action = parts[0]
+        session_id = parts[1]
+        
+        session = extracted_sessions.get(chat_id, {}).get(session_id)
+        if not session:
+            await query.answer("⚠️ Session expired or files deleted.", show_alert=True)
+            return
+            
+        extracted_files = session["files"]
+        user_temp_dir = session["dir"]
+        
+        share_markup = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📢 Share QualityPixels", url="https://t.me/share/url?url=https://t.me/QualityPixels&text=Join%20QualityPixels%20for%20more%20awesome%20content!")]
+        ])
+
+        if action == "cancelzip":
+            shutil.rmtree(user_temp_dir, ignore_errors=True)
+            if session_id in extracted_sessions.get(chat_id, {}):
+                del extracted_sessions[chat_id][session_id]
+            await query.message.edit_text("🗑 Files deleted and session cancelled.")
+            await query.answer()
+            
+        elif action == "sendall":
+            await query.message.edit_text(f"📤 Uploading all {len(extracted_files)} files...")
+            for ext_file in extracted_files:
+                if not os.path.exists(ext_file):
+                    continue
+                up_msg = await query.message.reply_text(f"📤 Uploading {os.path.basename(ext_file)}...")
+                try:
+                    await client.send_document(
+                        chat_id, 
+                        ext_file,
+                        reply_markup=share_markup,
+                        progress=progress,
+                        progress_args=(up_msg, f"📤 Uploading {os.path.basename(ext_file)}...")
+                    )
+                except Exception as e:
+                    print(f"Upload error: {e}")
+                await up_msg.delete()
+            
+            await query.message.edit_text("✅ All files uploaded!")
+            shutil.rmtree(user_temp_dir, ignore_errors=True)
+            if session_id in extracted_sessions.get(chat_id, {}):
+                del extracted_sessions[chat_id][session_id]
+
+        elif action == "sendfile":
+            idx = int(parts[2])
+            if idx < len(extracted_files):
+                ext_file = extracted_files[idx]
+                if os.path.exists(ext_file):
+                    up_msg = await query.message.reply_text(f"📤 Uploading {os.path.basename(ext_file)}...")
+                    try:
+                        await client.send_document(
+                            chat_id, 
+                            ext_file,
+                            reply_markup=share_markup,
+                            progress=progress,
+                            progress_args=(up_msg, f"📤 Uploading {os.path.basename(ext_file)}...")
+                        )
+                    except Exception as e:
+                        print(f"Upload error: {e}")
+                    await up_msg.delete()
+                    await query.answer("✅ File uploaded!")
+                else:
+                    await query.answer("⚠️ File not found. It might have been deleted.", show_alert=True)
+            else:
+                await query.answer("⚠️ Invalid file selection.", show_alert=True)
 
 
 async def handle_web(request):
