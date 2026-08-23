@@ -324,7 +324,7 @@ async def start_web_server():
 async def main():
     await start_web_server()
     await app.start()
-    print("🚀 Bot is starting up on Render Free Tier! (2GB Limit unlocked!)")
+    print("Bot is starting up on Render Free Tier! (2GB Limit unlocked!)")
     from pyrogram import idle
     await idle()
     await app.stop()
