@@ -2,6 +2,8 @@ import os
 import zipfile
 import shutil
 import asyncio
+import logging
+logging.basicConfig(level=logging.INFO)
 from aiohttp import web
 from pyrogram import Client, filters, enums
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
