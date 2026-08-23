@@ -71,7 +71,7 @@ async def send_welcome(client: Client, message: Message):
         "✨ Features:\n"
         "1. Zip multiple files into one ZIP\n"
         "2. Unzip archives easily\n"
-        "3. Support for .001, .002, .003 split files\n"
+        "3. Support for `.001`, `.002`, `.003` split files\n"
         "4. Multiple files can be queued\n"
         "5. Fast and simple processing\n\n"
         "**How to use:**\n"
