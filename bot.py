@@ -318,7 +318,7 @@ def start_web_server():
     web_app = web.Application()
     web_app.router.add_get('/', handle_web)
     port = int(os.environ.get("PORT", 8080))
-    web.run_app(web_app, host='0.0.0.0', port=port)
+    web.run_app(web_app, host='0.0.0.0', port=port, handle_signals=False)
 
 if __name__ == '__main__':
     print("Bot is starting up on Render Free Tier! (2GB Limit unlocked!)")
