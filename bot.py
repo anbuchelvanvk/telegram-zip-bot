@@ -2,6 +2,7 @@ import os
 import zipfile
 import shutil
 import asyncio
+import threading
 import logging
 logging.basicConfig(level=logging.INFO)
 from aiohttp import web
@@ -313,23 +314,14 @@ async def handle_docs(client: Client, message: Message):
 async def handle_web(request):
     return web.Response(text="Bot is running!")
 
-async def start_web_server():
+def start_web_server():
     web_app = web.Application()
     web_app.router.add_get('/', handle_web)
-    runner = web.AppRunner(web_app)
-    await runner.setup()
     port = int(os.environ.get("PORT", 8080))
-    site = web.TCPSite(runner, '0.0.0.0', port)
-    await site.start()
-    print(f"Web server started on port {port}")
-
-async def main():
-    await start_web_server()
-    await app.start()
-    print("Bot is starting up on Render Free Tier! (2GB Limit unlocked!)")
-    from pyrogram import idle
-    await idle()
-    await app.stop()
+    web.run_app(web_app, host='0.0.0.0', port=port)
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    print("Bot is starting up on Render Free Tier! (2GB Limit unlocked!)")
+    t = threading.Thread(target=start_web_server, daemon=True)
+    t.start()
+    app.run()
