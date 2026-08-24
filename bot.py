@@ -21,6 +21,13 @@ BOT_TOKEN = os.environ.get('BOT_TOKEN', '')
 
 FORCE_SUB_CHANNEL = os.environ.get('FORCE_SUB_CHANNEL', '')
 
+LOG_CHANNEL_ID = os.environ.get('LOG_CHANNEL_ID', '')
+if LOG_CHANNEL_ID:
+    try:
+        LOG_CHANNEL_ID = int(LOG_CHANNEL_ID)
+    except ValueError:
+        pass
+
 app = Client(
     "zip_bot_session",
     api_id=API_ID,
@@ -96,6 +103,34 @@ async def check_force_sub(client: Client, message: Message) -> bool:
 async def send_welcome(client: Client, message: Message):
     if not await check_force_sub(client, message):
         return
+        
+    if len(message.command) > 1:
+        payload = message.command[1]
+        if payload.startswith("file_"):
+            if not LOG_CHANNEL_ID:
+                await message.reply_text("❌ Database channel not configured.")
+                return
+            
+            try:
+                msg_id = int(payload.split("_")[1])
+                status_msg = await message.reply_text("🔄 Fetching your file...")
+                
+                keyboard = [
+                    [InlineKeyboardButton("📢 Share QualityPixels", url="https://t.me/share/url?url=https://t.me/QualityPixels&text=Join%20QualityPixels%20for%20more%20awesome%20content!")]
+                ]
+                
+                await client.copy_message(
+                    message.chat.id,
+                    LOG_CHANNEL_ID,
+                    msg_id,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+                await status_msg.delete()
+                return
+            except Exception as e:
+                await message.reply_text("❌ Invalid or expired link.")
+                return
+
     welcome_text = (
         "Welcome to the ultimate Telegram Unzip Bot! 🗂\n"
         "What I can do for you:\n\n"
@@ -449,21 +484,44 @@ async def handle_callbacks(client: Client, query):
                     share_text = urllib.parse.quote(f"Listen to {base} on @QualityPixels!")
                     file_share_url = f"https://t.me/share/url?url=https://t.me/QualityPixels&text={share_text}"
                     
-                    file_markup = InlineKeyboardMarkup([
+                    keyboard = [
                         [InlineKeyboardButton("📢 Share QualityPixels", url="https://t.me/share/url?url=https://t.me/QualityPixels&text=Join%20QualityPixels%20for%20more%20awesome%20content!")],
                         [InlineKeyboardButton("🔗 Share this file", url=file_share_url)]
-                    ])
+                    ]
                     
                     up_msg = await query.message.reply_text(f"📤 Uploading {os.path.basename(ext_file)}...")
                     try:
-                        await client.send_document(
-                            chat_id, 
-                            ext_file,
-                            caption=caption,
-                            reply_markup=file_markup,
-                            progress=progress,
-                            progress_args=(up_msg, f"📤 Uploading {os.path.basename(ext_file)}...")
-                        )
+                        log_msg = None
+                        if LOG_CHANNEL_ID:
+                            log_msg = await client.send_document(
+                                LOG_CHANNEL_ID,
+                                ext_file,
+                                caption=caption,
+                                progress=progress,
+                                progress_args=(up_msg, f"📤 Uploading {os.path.basename(ext_file)} to database...")
+                            )
+                        
+                        if log_msg:
+                            deep_link = f"https://t.me/{client.me.username}?start=file_{log_msg.id}"
+                            keyboard.append([InlineKeyboardButton("📥 Permanent Link", url=deep_link)])
+                            
+                            file_markup = InlineKeyboardMarkup(keyboard)
+                            await client.copy_message(
+                                chat_id,
+                                LOG_CHANNEL_ID,
+                                log_msg.id,
+                                reply_markup=file_markup
+                            )
+                        else:
+                            file_markup = InlineKeyboardMarkup(keyboard)
+                            await client.send_document(
+                                chat_id, 
+                                ext_file,
+                                caption=caption,
+                                reply_markup=file_markup,
+                                progress=progress,
+                                progress_args=(up_msg, f"📤 Uploading {os.path.basename(ext_file)}...")
+                            )
                     except Exception as e:
                         print(f"Upload error: {e}")
                     await up_msg.delete()
@@ -505,21 +563,44 @@ async def handle_callbacks(client: Client, query):
                         share_text = urllib.parse.quote(f"Listen to {base} on @QualityPixels!")
                         file_share_url = f"https://t.me/share/url?url=https://t.me/QualityPixels&text={share_text}"
                         
-                        file_markup = InlineKeyboardMarkup([
+                        keyboard = [
                             [InlineKeyboardButton("📢 Share QualityPixels", url="https://t.me/share/url?url=https://t.me/QualityPixels&text=Join%20QualityPixels%20for%20more%20awesome%20content!")],
                             [InlineKeyboardButton("🔗 Share this file", url=file_share_url)]
-                        ])
+                        ]
                         
                         up_msg = await query.message.reply_text(f"📤 Uploading {os.path.basename(ext_file)}...")
                         try:
-                            await client.send_document(
-                                chat_id, 
-                                ext_file,
-                                caption=caption,
-                                reply_markup=file_markup,
-                                progress=progress,
-                                progress_args=(up_msg, f"📤 Uploading {os.path.basename(ext_file)}...")
-                            )
+                            log_msg = None
+                            if LOG_CHANNEL_ID:
+                                log_msg = await client.send_document(
+                                    LOG_CHANNEL_ID,
+                                    ext_file,
+                                    caption=caption,
+                                    progress=progress,
+                                    progress_args=(up_msg, f"📤 Uploading {os.path.basename(ext_file)} to database...")
+                                )
+                            
+                            if log_msg:
+                                deep_link = f"https://t.me/{client.me.username}?start=file_{log_msg.id}"
+                                keyboard.append([InlineKeyboardButton("📥 Permanent Link", url=deep_link)])
+                                
+                                file_markup = InlineKeyboardMarkup(keyboard)
+                                await client.copy_message(
+                                    chat_id,
+                                    LOG_CHANNEL_ID,
+                                    log_msg.id,
+                                    reply_markup=file_markup
+                                )
+                            else:
+                                file_markup = InlineKeyboardMarkup(keyboard)
+                                await client.send_document(
+                                    chat_id, 
+                                    ext_file,
+                                    caption=caption,
+                                    reply_markup=file_markup,
+                                    progress=progress,
+                                    progress_args=(up_msg, f"📤 Uploading {os.path.basename(ext_file)}...")
+                                )
                         except Exception as e:
                             print(f"Upload error: {e}")
                         await up_msg.delete()
