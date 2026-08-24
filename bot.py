@@ -278,6 +278,33 @@ async def cleanup_session(client: Client, chat_id: int, session_id: str, message
         except Exception:
             pass
 
+async def cache_zip_files(client: Client, log_channel_id: int, extracted_files: list, file_unique_id: str):
+    if not log_channel_id or not file_unique_id:
+        return
+    for ext_file in extracted_files:
+        if not os.path.exists(ext_file):
+            continue
+            
+        dir_name = os.path.dirname(ext_file)
+        base_name = os.path.basename(ext_file)
+        
+        if not base_name.startswith("@QualityPixels - "):
+            new_name = f"@QualityPixels - {base_name}"
+            new_path = os.path.join(dir_name, new_name)
+            os.rename(ext_file, new_path)
+            ext_file = new_path
+            
+        base, ext = os.path.splitext(os.path.basename(ext_file))
+        ext_clean = ext.replace('.', '').upper()
+        caption = f"**👉🏽 {base}**\n**👉🏽 File Type: {ext_clean}**\n\n#ZIP_{file_unique_id}"
+        
+        try:
+            await client.send_document(log_channel_id, ext_file, caption=caption)
+            await asyncio.sleep(2)
+        except Exception as e:
+            print(f"Background cache error: {e}")
+
+
 @app.on_message(filters.document | filters.photo | filters.audio | filters.video)
 @queue_task
 async def handle_docs(client: Client, message: Message):
@@ -300,7 +327,58 @@ async def handle_docs(client: Client, message: Message):
         is_zip = file_name.lower().endswith('.zip')
 
         if is_zip:
-            status_msg = await message.reply_text("📥 Downloading zip file (this might take a while for large files)...")
+            file_unique_id = message.document.file_unique_id if message.document else None
+            
+            if LOG_CHANNEL_ID and file_unique_id:
+                status_msg = await message.reply_text("🔍 Checking cache...")
+                cached_msgs = []
+                try:
+                    async for msg in client.search_messages(LOG_CHANNEL_ID, query=f"#ZIP_{file_unique_id}"):
+                        if msg.document or msg.audio or msg.video:
+                            cached_msgs.append(msg)
+                except Exception as e:
+                    print(f"Cache search error: {e}")
+                    
+                if cached_msgs:
+                    await status_msg.delete()
+                    cached_msgs.sort(key=lambda x: x.id)
+                    
+                    session_id = str(message.id)
+                    if chat_id not in extracted_sessions:
+                        extracted_sessions[chat_id] = {}
+                        
+                    extracted_sessions[chat_id][session_id] = {
+                        "cached": True,
+                        "files": cached_msgs
+                    }
+                    
+                    keyboard = []
+                    keyboard.append([InlineKeyboardButton("📤 Send All Files", callback_data=f"sendall_{session_id}")])
+                    
+                    for idx, msg in enumerate(cached_msgs[:50]):
+                        filename = "Unknown"
+                        if msg.document: filename = msg.document.file_name
+                        elif msg.audio: filename = msg.audio.file_name
+                        elif msg.video: filename = msg.video.file_name
+                        keyboard.append([InlineKeyboardButton(filename, callback_data=f"sendfile_{session_id}_{idx}")])
+                        
+                    if len(cached_msgs) > 50:
+                        keyboard.append([InlineKeyboardButton(f"...and {len(cached_msgs)-50} more", callback_data="ignore")])
+                        
+                    keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data=f"cancelzip_{session_id}")])
+                    
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+                    await message.reply_text(
+                        f"⚡️ **CACHE HIT!**\n✅ Found {len(cached_msgs)} files instantly.\n\n"
+                        f"Select what to download:", 
+                        reply_markup=reply_markup
+                    )
+                    return
+                else:
+                    await status_msg.edit_text("📥 Downloading zip file (this might take a while for large files)...")
+            else:
+                status_msg = await message.reply_text("📥 Downloading zip file (this might take a while for large files)...")
+
             user_temp_dir = os.path.join(TEMP_DIR, f"unzip_{chat_id}_{message.id}")
             os.makedirs(user_temp_dir, exist_ok=True)
             
@@ -365,6 +443,10 @@ async def handle_docs(client: Client, message: Message):
                     
                     # Schedule 2-minute cleanup
                     asyncio.create_task(cleanup_session(client, chat_id, session_id, new_msg.id, user_temp_dir))
+                    
+                    # Background cache
+                    if LOG_CHANNEL_ID and file_unique_id:
+                        asyncio.create_task(cache_zip_files(client, LOG_CHANNEL_ID, extracted_files, file_unique_id))
                             
             except zipfile.BadZipFile:
                 await status_msg.delete()
@@ -463,89 +545,23 @@ async def handle_callbacks(client: Client, query):
                     queue_count -= 1
                 await query.message.delete()
                 status_msg = await client.send_message(chat_id, f"📤 Uploading all {len(extracted_files)} files...")
-                for i, ext_file in enumerate(extracted_files):
-                    if not os.path.exists(ext_file):
-                        continue
-                        
-                    dir_name = os.path.dirname(ext_file)
-                    base_name = os.path.basename(ext_file)
-                    if not base_name.startswith("@QualityPixels - "):
-                        new_name = f"@QualityPixels - {base_name}"
-                        new_path = os.path.join(dir_name, new_name)
-                        os.rename(ext_file, new_path)
-                        ext_file = new_path
-                        extracted_files[i] = new_path
-                        
-                    base, ext = os.path.splitext(os.path.basename(ext_file))
-                    ext_clean = ext.replace('.', '').upper()
-                    caption = f"**👉🏽 {base}**\n**👉🏽 File Type: {ext_clean}**"
-                    
-                    import urllib.parse
-                    share_text = urllib.parse.quote(f"Listen to {base} on @QualityPixels!")
-                    file_share_url = f"https://t.me/share/url?url=https://t.me/QualityPixels&text={share_text}"
-                    
-                    keyboard = [
-                        [InlineKeyboardButton("📢 Share QualityPixels", url="https://t.me/share/url?url=https://t.me/QualityPixels&text=Join%20QualityPixels%20for%20more%20awesome%20content!")],
-                        [InlineKeyboardButton("🔗 Share this file", url=file_share_url)]
-                    ]
-                    
-                    up_msg = await query.message.reply_text(f"📤 Uploading {os.path.basename(ext_file)}...")
-                    try:
-                        log_msg = None
-                        if LOG_CHANNEL_ID:
-                            log_msg = await client.send_document(
-                                LOG_CHANNEL_ID,
-                                ext_file,
-                                caption=caption,
-                                progress=progress,
-                                progress_args=(up_msg, f"📤 Uploading {os.path.basename(ext_file)} to database...")
-                            )
-                        
-                        if log_msg:
-                            deep_link = f"https://t.me/{client.me.username}?start=file_{log_msg.id}"
-                            keyboard.append([InlineKeyboardButton("📥 Permanent Link", url=deep_link)])
+                for item in extracted_files:
+                    if session.get("cached"):
+                        msg = item
+                        deep_link = f"https://t.me/{client.me.username}?start=file_{msg.id}"
+                        keyboard = [
+                            [InlineKeyboardButton("📢 Share QualityPixels", url="https://t.me/share/url?url=https://t.me/QualityPixels&text=Join%20QualityPixels%20for%20more%20awesome%20content!")],
+                            [InlineKeyboardButton("📥 Permanent Link", url=deep_link)]
+                        ]
+                        try:
+                            await client.copy_message(chat_id, LOG_CHANNEL_ID, msg.id, reply_markup=InlineKeyboardMarkup(keyboard))
+                            await asyncio.sleep(0.5)
+                        except Exception: pass
+                    else:
+                        ext_file = item
+                        if not os.path.exists(ext_file):
+                            continue
                             
-                            file_markup = InlineKeyboardMarkup(keyboard)
-                            await client.copy_message(
-                                chat_id,
-                                LOG_CHANNEL_ID,
-                                log_msg.id,
-                                reply_markup=file_markup
-                            )
-                        else:
-                            file_markup = InlineKeyboardMarkup(keyboard)
-                            await client.send_document(
-                                chat_id, 
-                                ext_file,
-                                caption=caption,
-                                reply_markup=file_markup,
-                                progress=progress,
-                                progress_args=(up_msg, f"📤 Uploading {os.path.basename(ext_file)}...")
-                            )
-                    except Exception as e:
-                        print(f"Upload error: {e}")
-                    await up_msg.delete()
-                
-                await status_msg.delete()
-                await client.send_message(chat_id, "✅ All files uploaded!")
-                shutil.rmtree(user_temp_dir, ignore_errors=True)
-                if session_id in extracted_sessions.get(chat_id, {}):
-                    del extracted_sessions[chat_id][session_id]
-
-        elif action == "sendfile":
-            idx = int(parts[2])
-            if idx < len(extracted_files):
-                in_queue = False
-                semaphore = get_semaphore()
-                if semaphore.locked():
-                    in_queue = True
-                    queue_count += 1
-                    await query.answer(f"⏳ Server busy! You are at position #{queue_count} in the queue. Please wait...", show_alert=True)
-                async with semaphore:
-                    if in_queue:
-                        queue_count -= 1
-                    ext_file = extracted_files[idx]
-                    if os.path.exists(ext_file):
                         dir_name = os.path.dirname(ext_file)
                         base_name = os.path.basename(ext_file)
                         if not base_name.startswith("@QualityPixels - "):
@@ -553,7 +569,6 @@ async def handle_callbacks(client: Client, query):
                             new_path = os.path.join(dir_name, new_name)
                             os.rename(ext_file, new_path)
                             ext_file = new_path
-                            extracted_files[idx] = new_path
                             
                         base, ext = os.path.splitext(os.path.basename(ext_file))
                         ext_clean = ext.replace('.', '').upper()
@@ -570,43 +585,90 @@ async def handle_callbacks(client: Client, query):
                         
                         up_msg = await query.message.reply_text(f"📤 Uploading {os.path.basename(ext_file)}...")
                         try:
-                            log_msg = None
-                            if LOG_CHANNEL_ID:
-                                log_msg = await client.send_document(
-                                    LOG_CHANNEL_ID,
-                                    ext_file,
-                                    caption=caption,
-                                    progress=progress,
-                                    progress_args=(up_msg, f"📤 Uploading {os.path.basename(ext_file)} to database...")
-                                )
-                            
-                            if log_msg:
-                                deep_link = f"https://t.me/{client.me.username}?start=file_{log_msg.id}"
-                                keyboard.append([InlineKeyboardButton("📥 Permanent Link", url=deep_link)])
+                            await client.send_document(
+                                chat_id, 
+                                ext_file,
+                                caption=caption,
+                                reply_markup=InlineKeyboardMarkup(keyboard),
+                                progress=progress,
+                                progress_args=(up_msg, f"📤 Uploading {os.path.basename(ext_file)}...")
+                            )
+                        except Exception as e:
+                            print(f"Upload error: {e}")
+                        await up_msg.delete()
+                
+                await status_msg.delete()
+                await client.send_message(chat_id, "✅ All files processed!")
+                if user_temp_dir:
+                    shutil.rmtree(user_temp_dir, ignore_errors=True)
+                if session_id in extracted_sessions.get(chat_id, {}):
+                    del extracted_sessions[chat_id][session_id]
+
+        elif action == "sendfile":
+            idx = int(parts[2])
+            if idx < len(extracted_files):
+                in_queue = False
+                semaphore = get_semaphore()
+                if semaphore.locked():
+                    in_queue = True
+                    queue_count += 1
+                    await query.answer(f"⏳ Server busy! You are at position #{queue_count} in the queue. Please wait...", show_alert=True)
+                async with semaphore:
+                    if in_queue:
+                        queue_count -= 1
+                    if session.get("cached"):
+                        msg = extracted_files[idx]
+                        deep_link = f"https://t.me/{client.me.username}?start=file_{msg.id}"
+                        keyboard = [
+                            [InlineKeyboardButton("📢 Share QualityPixels", url="https://t.me/share/url?url=https://t.me/QualityPixels&text=Join%20QualityPixels%20for%20more%20awesome%20content!")],
+                            [InlineKeyboardButton("📥 Permanent Link", url=deep_link)]
+                        ]
+                        try:
+                            await client.copy_message(chat_id, LOG_CHANNEL_ID, msg.id, reply_markup=InlineKeyboardMarkup(keyboard))
+                            await query.answer("✅ File forwarded from cache!")
+                        except Exception:
+                            await query.answer("⚠️ Error fetching from cache.", show_alert=True)
+                    else:
+                        ext_file = extracted_files[idx]
+                        if os.path.exists(ext_file):
+                            dir_name = os.path.dirname(ext_file)
+                            base_name = os.path.basename(ext_file)
+                            if not base_name.startswith("@QualityPixels - "):
+                                new_name = f"@QualityPixels - {base_name}"
+                                new_path = os.path.join(dir_name, new_name)
+                                os.rename(ext_file, new_path)
+                                ext_file = new_path
+                                extracted_files[idx] = new_path
                                 
-                                file_markup = InlineKeyboardMarkup(keyboard)
-                                await client.copy_message(
-                                    chat_id,
-                                    LOG_CHANNEL_ID,
-                                    log_msg.id,
-                                    reply_markup=file_markup
-                                )
-                            else:
-                                file_markup = InlineKeyboardMarkup(keyboard)
+                            base, ext = os.path.splitext(os.path.basename(ext_file))
+                            ext_clean = ext.replace('.', '').upper()
+                            caption = f"**👉🏽 {base}**\n**👉🏽 File Type: {ext_clean}**"
+                            
+                            import urllib.parse
+                            share_text = urllib.parse.quote(f"Listen to {base} on @QualityPixels!")
+                            file_share_url = f"https://t.me/share/url?url=https://t.me/QualityPixels&text={share_text}"
+                            
+                            keyboard = [
+                                [InlineKeyboardButton("📢 Share QualityPixels", url="https://t.me/share/url?url=https://t.me/QualityPixels&text=Join%20QualityPixels%20for%20more%20awesome%20content!")],
+                                [InlineKeyboardButton("🔗 Share this file", url=file_share_url)]
+                            ]
+                            
+                            up_msg = await query.message.reply_text(f"📤 Uploading {os.path.basename(ext_file)}...")
+                            try:
                                 await client.send_document(
                                     chat_id, 
                                     ext_file,
                                     caption=caption,
-                                    reply_markup=file_markup,
+                                    reply_markup=InlineKeyboardMarkup(keyboard),
                                     progress=progress,
                                     progress_args=(up_msg, f"📤 Uploading {os.path.basename(ext_file)}...")
                                 )
-                        except Exception as e:
-                            print(f"Upload error: {e}")
-                        await up_msg.delete()
-                        await query.answer("✅ File uploaded!")
-                    else:
-                        await query.answer("⚠️ File not found. It might have been deleted.", show_alert=True)
+                            except Exception as e:
+                                print(f"Upload error: {e}")
+                            await up_msg.delete()
+                            await query.answer("✅ File uploaded!")
+                        else:
+                            await query.answer("⚠️ File not found. It might have been deleted.", show_alert=True)
             else:
                 await query.answer("⚠️ Invalid file selection.", show_alert=True)
 
