@@ -162,7 +162,8 @@ async def unzip_split_command(client: Client, message: Message):
                     extracted_files.append(os.path.join(root, file))
             
             if not extracted_files:
-                await status_msg.edit_text("⚠️ The split archive was empty.")
+                await status_msg.delete()
+                await message.reply_text("⚠️ The split archive was empty.")
                 shutil.rmtree(user_temp_dir, ignore_errors=True)
             else:
                 session_id = str(message.id)
@@ -188,7 +189,8 @@ async def unzip_split_command(client: Client, message: Message):
                 keyboard.append([InlineKeyboardButton("❌ Cancel & Delete", callback_data=f"cancelzip_{session_id}")])
                 
                 reply_markup = InlineKeyboardMarkup(keyboard)
-                await status_msg.edit_text(
+                await status_msg.delete()
+                new_msg = await message.reply_text(
                     f"✅ Extracted {len(extracted_files)} files.\n\n"
                     f"⚠️ **Note:** Files will be automatically deleted after 2 minutes of inactivity.\n\n"
                     f"Select what to download:", 
@@ -196,14 +198,16 @@ async def unzip_split_command(client: Client, message: Message):
                 )
                 
                 # Schedule 2-minute cleanup
-                asyncio.create_task(cleanup_session(client, chat_id, session_id, status_msg.id, user_temp_dir))
+                asyncio.create_task(cleanup_session(client, chat_id, session_id, new_msg.id, user_temp_dir))
                         
         except zipfile.BadZipFile:
-            await status_msg.edit_text("❌ The merged file is not a valid zip archive.")
+            await status_msg.delete()
+            await message.reply_text("❌ The merged file is not a valid zip archive.")
             shutil.rmtree(user_temp_dir, ignore_errors=True)
             
     except Exception as e:
-        await status_msg.edit_text(f"❌ Error unzipping split files: {e}")
+        await status_msg.delete()
+        await message.reply_text(f"❌ Error unzipping split files: {e}")
         shutil.rmtree(user_temp_dir, ignore_errors=True)
     finally:
         for file_path in user_files.get(chat_id, []):
@@ -231,9 +235,9 @@ async def cleanup_session(client: Client, chat_id: int, session_id: str, message
         shutil.rmtree(user_temp_dir, ignore_errors=True)
         del extracted_sessions[chat_id][session_id]
         try:
-            await client.edit_message_text(
+            await client.delete_messages(chat_id, message_id)
+            await client.send_message(
                 chat_id, 
-                message_id, 
                 "⏳ **Session Expired**\nFiles were automatically deleted from the server after 2 minutes of inactivity to save space."
             )
         except Exception:
@@ -289,7 +293,8 @@ async def handle_docs(client: Client, message: Message):
                         extracted_files.append(os.path.join(root, file))
                 
                 if not extracted_files:
-                    await status_msg.edit_text("⚠️ The zip file was empty.")
+                    await status_msg.delete()
+                    await message.reply_text("⚠️ The zip file was empty.")
                     shutil.rmtree(user_temp_dir, ignore_errors=True)
                 else:
                     session_id = str(message.id)
@@ -315,7 +320,8 @@ async def handle_docs(client: Client, message: Message):
                     keyboard.append([InlineKeyboardButton("❌ Cancel & Delete", callback_data=f"cancelzip_{session_id}")])
                     
                     reply_markup = InlineKeyboardMarkup(keyboard)
-                    await status_msg.edit_text(
+                    await status_msg.delete()
+                    new_msg = await message.reply_text(
                         f"✅ Extracted {len(extracted_files)} files.\n\n"
                         f"⚠️ **Note:** Files will be automatically deleted after 2 minutes of inactivity.\n\n"
                         f"Select what to download:", 
@@ -323,13 +329,15 @@ async def handle_docs(client: Client, message: Message):
                     )
                     
                     # Schedule 2-minute cleanup
-                    asyncio.create_task(cleanup_session(client, chat_id, session_id, status_msg.id, user_temp_dir))
+                    asyncio.create_task(cleanup_session(client, chat_id, session_id, new_msg.id, user_temp_dir))
                             
             except zipfile.BadZipFile:
-                await status_msg.edit_text("❌ The file provided is not a valid zip archive.")
+                await status_msg.delete()
+                await message.reply_text("❌ The file provided is not a valid zip archive.")
                 shutil.rmtree(user_temp_dir, ignore_errors=True)
             except Exception as e:
-                await status_msg.edit_text(f"❌ Error unzipping: {e}")
+                await status_msg.delete()
+                await message.reply_text(f"❌ Error unzipping: {e}")
                 shutil.rmtree(user_temp_dir, ignore_errors=True)
                 
         else:
@@ -360,7 +368,8 @@ async def handle_docs(client: Client, message: Message):
                 
                 user_files[chat_id].append(save_path)
                 
-                await status_msg.edit_text(
+                await status_msg.delete()
+                await message.reply_text(
                     f"✅ Saved `{os.path.basename(save_path)}`.\n"
                     f"Total split files queued: {len(user_files[chat_id])}.\n"
                     f"Send more parts, then type `/unzip` to extract them!"
@@ -403,7 +412,8 @@ async def handle_callbacks(client: Client, query):
             shutil.rmtree(user_temp_dir, ignore_errors=True)
             if session_id in extracted_sessions.get(chat_id, {}):
                 del extracted_sessions[chat_id][session_id]
-            await query.message.edit_text("🗑 Files deleted and session cancelled.")
+            await query.message.delete()
+            await client.send_message(chat_id, "🗑 Files deleted and session cancelled.")
             await query.answer()
             
         elif action == "sendall":
@@ -416,7 +426,8 @@ async def handle_callbacks(client: Client, query):
             async with semaphore:
                 if in_queue:
                     queue_count -= 1
-                await query.message.edit_text(f"📤 Uploading all {len(extracted_files)} files...")
+                await query.message.delete()
+                status_msg = await client.send_message(chat_id, f"📤 Uploading all {len(extracted_files)} files...")
                 for i, ext_file in enumerate(extracted_files):
                     if not os.path.exists(ext_file):
                         continue
@@ -448,7 +459,8 @@ async def handle_callbacks(client: Client, query):
                         print(f"Upload error: {e}")
                     await up_msg.delete()
                 
-                await query.message.edit_text("✅ All files uploaded!")
+                await status_msg.delete()
+                await client.send_message(chat_id, "✅ All files uploaded!")
                 shutil.rmtree(user_temp_dir, ignore_errors=True)
                 if session_id in extracted_sessions.get(chat_id, {}):
                     del extracted_sessions[chat_id][session_id]
