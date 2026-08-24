@@ -29,7 +29,6 @@ app = Client(
 
 from functools import wraps
 
-user_files = {}
 extracted_sessions = {}
 
 processing_semaphore = None
@@ -98,134 +97,14 @@ async def send_welcome(client: Client, message: Message):
     welcome_text = (
         "An Exclusive Bot from @QualityPixels\n\n"
         "✨ Features:\n"
-        "1. Zip multiple files into one ZIP\n"
-        "2. Unzip archives easily\n"
-        "3. Support for `.001`, `.002`, `.003` split files\n"
-        "4. Multiple files can be queued\n"
-        "5. Fast and simple processing\n\n"
+        "1. Unzip archives easily\n"
+        "2. Send any `.zip` file to immediately extract it\n"
+        "3. Download individual files or send everything at once\n"
+        "4. Fast and simple processing\n\n"
         "**How to use:**\n"
-        "👉 Send a `.zip` file to **Unzip** it automatically.\n"
-        "👉 Send multiple files and type `/zip` to **Zip** them.\n"
-        "👉 Send `.001`, `.002` split files and type `/merge` to **Merge** them.\n"
-        "👉 Type `/clear` if you want to cancel queued files."
+        "👉 Simply send a `.zip` file to the bot and it will Unzip it for you!"
     )
     await message.reply_text(welcome_text)
-
-
-@app.on_message(filters.command("clear"))
-async def clear_files(client: Client, message: Message):
-    if not await check_force_sub(client, message):
-        return
-    chat_id = message.chat.id
-    if chat_id in user_files and user_files[chat_id]:
-        for file_path in user_files[chat_id]:
-            if os.path.exists(file_path):
-                os.remove(file_path)
-        user_files[chat_id] = []
-        await message.reply_text("🗑 Cleared your pending files.")
-    else:
-        await message.reply_text("You don't have any pending files.")
-
-
-@app.on_message(filters.command("zip"))
-@queue_task
-async def zip_files_command(client: Client, message: Message):
-    if not await check_force_sub(client, message):
-        return
-    chat_id = message.chat.id
-    if chat_id not in user_files or not user_files[chat_id]:
-        await message.reply_text("⚠️ You haven't sent any files to zip yet.")
-        return
-
-    status_msg = await message.reply_text("🔄 Zipping your files, please wait...")
-    
-    zip_filename = os.path.join(TEMP_DIR, f"@QualityPixels - archive_{chat_id}.zip")
-    try:
-        # allowZip64=True is necessary for files > 2GB (in total) or > 4GB etc
-        with zipfile.ZipFile(zip_filename, 'w', zipfile.ZIP_DEFLATED, allowZip64=True) as zipf:
-            for file_path in user_files[chat_id]:
-                if os.path.exists(file_path):
-                    zipf.write(file_path, os.path.basename(file_path))
-        
-        await status_msg.edit_text("📤 Uploading your Zip archive. This might take a while for large files...")
-        
-        caption = f"**👉🏽 @QualityPixels - archive**\n**👉🏽 File Type: ZIP**"
-        await client.send_document(
-            chat_id, 
-            zip_filename,
-            caption=caption,
-            progress=progress,
-            progress_args=(status_msg, "📤 Uploading Zip Archive...")
-        )
-        await status_msg.delete()
-            
-    except Exception as e:
-        await status_msg.edit_text(f"❌ Error creating zip: {e}")
-    finally:
-        # Cleanup
-        for file_path in user_files.get(chat_id, []):
-            if os.path.exists(file_path):
-                os.remove(file_path)
-        user_files[chat_id] = []
-        if os.path.exists(zip_filename):
-            os.remove(zip_filename)
-
-
-@app.on_message(filters.command("merge"))
-@queue_task
-async def merge_files_command(client: Client, message: Message):
-    if not await check_force_sub(client, message):
-        return
-    chat_id = message.chat.id
-    if chat_id not in user_files or len(user_files[chat_id]) < 2:
-        await message.reply_text("⚠️ You need to queue at least 2 files to merge.")
-        return
-
-    status_msg = await message.reply_text("🔄 Merging your files, please wait...")
-    
-    # Sort files alphabetically to ensure .001, .002, etc. are ordered
-    files_to_merge = sorted(user_files[chat_id])
-    
-    # Determine base name from the first file
-    first_file = files_to_merge[0]
-    base_name = os.path.basename(first_file)
-    if base_name.endswith('.001'):
-        base_name = base_name[:-4]
-    else:
-        base_name = "merged_file"
-        
-    merged_filename = os.path.join(TEMP_DIR, f"@QualityPixels - {base_name}")
-    
-    try:
-        with open(merged_filename, 'wb') as outfile:
-            for file_path in files_to_merge:
-                if os.path.exists(file_path):
-                    with open(file_path, 'rb') as infile:
-                        shutil.copyfileobj(infile, outfile)
-                        
-        await status_msg.edit_text("📤 Uploading your merged file. This might take a while...")
-        
-        base, ext = os.path.splitext(os.path.basename(merged_filename))
-        ext_clean = ext.replace('.', '').upper()
-        caption = f"**👉🏽 {base}**\n**👉🏽 File Type: {ext_clean}**"
-        await client.send_document(
-            chat_id, 
-            merged_filename,
-            caption=caption,
-            progress=progress,
-            progress_args=(status_msg, "📤 Uploading Merged File...")
-        )
-        await status_msg.delete()
-            
-    except Exception as e:
-        await status_msg.edit_text(f"❌ Error merging files: {e}")
-    finally:
-        for file_path in user_files.get(chat_id, []):
-            if os.path.exists(file_path):
-                os.remove(file_path)
-        user_files[chat_id] = []
-        if os.path.exists(merged_filename):
-            os.remove(merged_filename)
 
 
 # Function to track download/upload progress
@@ -349,37 +228,7 @@ async def handle_docs(client: Client, message: Message):
                 shutil.rmtree(user_temp_dir, ignore_errors=True)
                 
         else:
-            status_msg = await message.reply_text(f"📥 Downloading `{file_name}`...")
-            
-            user_dir = os.path.join(TEMP_DIR, f"user_{chat_id}")
-            os.makedirs(user_dir, exist_ok=True)
-            
-            save_path = os.path.join(user_dir, file_name)
-            
-            base, ext = os.path.splitext(save_path)
-            counter = 1
-            while os.path.exists(save_path):
-                save_path = f"{base}_{counter}{ext}"
-                counter += 1
-                
-            # Download to path
-            await client.download_media(
-                message, 
-                file_name=save_path,
-                progress=progress,
-                progress_args=(status_msg, f"📥 Downloading `{os.path.basename(save_path)}`...")
-            )
-                
-            if chat_id not in user_files:
-                user_files[chat_id] = []
-            
-            user_files[chat_id].append(save_path)
-            
-            await status_msg.edit_text(
-                f"✅ Saved `{os.path.basename(save_path)}`.\n"
-                f"Total files queued: {len(user_files[chat_id])}.\n"
-                f"Send more files, then type `/zip` to zip them, or `/merge` to combine split files."
-            )
+            await message.reply_text(f"❌ I only accept `.zip` archives. Please send a `.zip` file!")
             
     except Exception as e:
         await message.reply_text(f"❌ An error occurred: {e}")
