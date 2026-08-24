@@ -79,27 +79,41 @@ async def ensure_db(client: Client):
         await db.download_db(client, LOG_CHANNEL_ID)
         db_loaded = True
 
-async def force_resolve_peer(chat_id):
-    if not isinstance(chat_id, int):
-        return True
-    try:
-        async with aiohttp.ClientSession() as session:
-            url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-            payload = {"chat_id": chat_id, "text": "🔄 (System: Resolving Peer ID...)"}
-            async with session.post(url, json=payload) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    msg_id = data.get("result", {}).get("message_id")
-                    if msg_id:
-                        del_url = f"https://api.telegram.org/bot{BOT_TOKEN}/deleteMessage"
-                        await session.post(del_url, json={"chat_id": chat_id, "message_id": msg_id})
-                    await asyncio.sleep(1) 
-                    return True
-                return False
-    except Exception as e:
-        print(f"Force resolve error: {e}")
-        return False
+async def http_send_document(chat_id, document_path, caption):
+    async with aiohttp.ClientSession() as session:
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendDocument"
+        data = aiohttp.FormData()
+        data.add_field("chat_id", str(chat_id))
+        data.add_field("caption", caption)
+        data.add_field("parse_mode", "Markdown")
+        data.add_field("document", open(document_path, "rb"))
+        async with session.post(url, data=data) as resp:
+            res = await resp.json()
+            if res.get("ok"):
+                return res["result"]["message_id"]
+            raise Exception(res.get("description"))
 
+async def http_copy_message(chat_id, from_chat_id, message_id, reply_markup=None):
+    async with aiohttp.ClientSession() as session:
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/copyMessage"
+        payload = {"chat_id": chat_id, "from_chat_id": from_chat_id, "message_id": message_id}
+        if reply_markup:
+            import json
+            keyboard = []
+            for row in reply_markup.inline_keyboard:
+                new_row = []
+                for btn in row:
+                    new_btn = {"text": btn.text}
+                    if btn.url: new_btn["url"] = btn.url
+                    if btn.callback_data: new_btn["callback_data"] = btn.callback_data
+                    new_row.append(new_btn)
+                keyboard.append(new_row)
+            payload["reply_markup"] = json.dumps({"inline_keyboard": keyboard})
+        async with session.post(url, json=payload) as resp:
+            res = await resp.json()
+            if res.get("ok"):
+                return res["result"]["message_id"]
+            raise Exception(res.get("description"))
 
 async def check_force_sub(client: Client, message: Message) -> bool:
     """
@@ -339,13 +353,12 @@ async def cache_zip_files(client: Client, chat_id: int, log_channel_id: int, ext
             msg_ids.append(msg.id)
             await asyncio.sleep(2)
         except (PeerIdInvalid, ValueError):
-            await force_resolve_peer(log_channel_id)
             try:
-                msg = await client.send_document(log_channel_id, ext_file, caption=caption)
-                msg_ids.append(msg.id)
+                msg_id = await http_send_document(log_channel_id, ext_file, caption)
+                msg_ids.append(msg_id)
                 await asyncio.sleep(2)
             except Exception as e:
-                try: await client.send_message(chat_id, f"⚠️ Cache Error (After Resolve): {type(e).__name__} - {e}")
+                try: await client.send_message(chat_id, f"⚠️ Cache Error (HTTP Fallback): {type(e).__name__} - {e}")
                 except Exception: pass
         except Exception as e:
             try: await client.send_message(chat_id, f"⚠️ Cache Error: {type(e).__name__} - {e}")
@@ -396,7 +409,7 @@ async def handle_docs(client: Client, message: Message):
                                 if msg and not msg.empty and (msg.document or msg.audio or msg.video):
                                     cached_msgs.append(msg)
                         except (PeerIdInvalid, ValueError):
-                            await force_resolve_peer(LOG_CHANNEL_ID)
+                            await force_resolve_peer(client, LOG_CHANNEL_ID, chat_id)
                             raw_msgs = await client.get_messages(LOG_CHANNEL_ID, cached_msg_ids)
                             if not isinstance(raw_msgs, list): raw_msgs = [raw_msgs]
                             for msg in raw_msgs:
@@ -631,9 +644,8 @@ async def handle_callbacks(client: Client, query):
                             await client.copy_message(chat_id, LOG_CHANNEL_ID, msg.id, reply_markup=InlineKeyboardMarkup(keyboard))
                             await asyncio.sleep(0.5)
                         except (PeerIdInvalid, ValueError):
-                            await force_resolve_peer(LOG_CHANNEL_ID)
                             try:
-                                await client.copy_message(chat_id, LOG_CHANNEL_ID, msg.id, reply_markup=InlineKeyboardMarkup(keyboard))
+                                await http_copy_message(chat_id, LOG_CHANNEL_ID, msg.id, reply_markup=InlineKeyboardMarkup(keyboard))
                                 await asyncio.sleep(0.5)
                             except Exception: pass
                         except Exception: pass
@@ -699,9 +711,8 @@ async def handle_callbacks(client: Client, query):
                             await client.copy_message(chat_id, LOG_CHANNEL_ID, msg.id, reply_markup=InlineKeyboardMarkup(keyboard))
                             await query.answer("✅ File forwarded from cache!")
                         except (PeerIdInvalid, ValueError):
-                            await force_resolve_peer(LOG_CHANNEL_ID)
                             try:
-                                await client.copy_message(chat_id, LOG_CHANNEL_ID, msg.id, reply_markup=InlineKeyboardMarkup(keyboard))
+                                await http_copy_message(chat_id, LOG_CHANNEL_ID, msg.id, reply_markup=InlineKeyboardMarkup(keyboard))
                                 await query.answer("✅ File forwarded from cache!")
                             except Exception:
                                 await query.answer("⚠️ Error fetching from cache.", show_alert=True)
