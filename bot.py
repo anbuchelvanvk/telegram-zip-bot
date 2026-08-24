@@ -9,7 +9,7 @@ import re
 from aiohttp import web
 from pyrogram import Client, filters, enums
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
-from pyrogram.errors import UserNotParticipant
+from pyrogram.errors import UserNotParticipant, PeerIdInvalid
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -68,6 +68,28 @@ def queue_task(func):
 
 TEMP_DIR = "temp_files"
 os.makedirs(TEMP_DIR, exist_ok=True)
+
+
+async def force_resolve_peer(chat_id):
+    if not isinstance(chat_id, int):
+        return True
+    try:
+        async with aiohttp.ClientSession() as session:
+            url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+            payload = {"chat_id": chat_id, "text": "🔄 (System: Resolving Peer ID...)"}
+            async with session.post(url, json=payload) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    msg_id = data.get("result", {}).get("message_id")
+                    if msg_id:
+                        del_url = f"https://api.telegram.org/bot{BOT_TOKEN}/deleteMessage"
+                        await session.post(del_url, json={"chat_id": chat_id, "message_id": msg_id})
+                    await asyncio.sleep(1) 
+                    return True
+                return False
+    except Exception as e:
+        print(f"Force resolve error: {e}")
+        return False
 
 
 async def check_force_sub(client: Client, message: Message) -> bool:
@@ -299,6 +321,13 @@ async def cache_zip_files(client: Client, log_channel_id: int, extracted_files: 
         try:
             await client.send_document(log_channel_id, ext_file, caption=caption)
             await asyncio.sleep(2)
+        except PeerIdInvalid:
+            await force_resolve_peer(log_channel_id)
+            try:
+                await client.send_document(log_channel_id, ext_file, caption=caption)
+                await asyncio.sleep(2)
+            except Exception as e:
+                print(f"Background cache error after resolve: {e}")
         except Exception as e:
             print(f"Background cache error: {e}")
 
@@ -334,6 +363,14 @@ async def handle_docs(client: Client, message: Message):
                     async for msg in client.search_messages(LOG_CHANNEL_ID, query=f"#ZIP_{file_unique_id}"):
                         if msg.document or msg.audio or msg.video:
                             cached_msgs.append(msg)
+                except PeerIdInvalid:
+                    await force_resolve_peer(LOG_CHANNEL_ID)
+                    try:
+                        async for msg in client.search_messages(LOG_CHANNEL_ID, query=f"#ZIP_{file_unique_id}"):
+                            if msg.document or msg.audio or msg.video:
+                                cached_msgs.append(msg)
+                    except Exception as e:
+                        print(f"Cache search error after resolve: {e}")
                 except Exception as e:
                     print(f"Cache search error: {e}")
                     
@@ -561,6 +598,12 @@ async def handle_callbacks(client: Client, query):
                         try:
                             await client.copy_message(chat_id, LOG_CHANNEL_ID, msg.id, reply_markup=InlineKeyboardMarkup(keyboard))
                             await asyncio.sleep(0.5)
+                        except PeerIdInvalid:
+                            await force_resolve_peer(LOG_CHANNEL_ID)
+                            try:
+                                await client.copy_message(chat_id, LOG_CHANNEL_ID, msg.id, reply_markup=InlineKeyboardMarkup(keyboard))
+                                await asyncio.sleep(0.5)
+                            except Exception: pass
                         except Exception: pass
                     else:
                         ext_file = item
@@ -623,6 +666,13 @@ async def handle_callbacks(client: Client, query):
                         try:
                             await client.copy_message(chat_id, LOG_CHANNEL_ID, msg.id, reply_markup=InlineKeyboardMarkup(keyboard))
                             await query.answer("✅ File forwarded from cache!")
+                        except PeerIdInvalid:
+                            await force_resolve_peer(LOG_CHANNEL_ID)
+                            try:
+                                await client.copy_message(chat_id, LOG_CHANNEL_ID, msg.id, reply_markup=InlineKeyboardMarkup(keyboard))
+                                await query.answer("✅ File forwarded from cache!")
+                            except Exception:
+                                await query.answer("⚠️ Error fetching from cache.", show_alert=True)
                         except Exception:
                             await query.answer("⚠️ Error fetching from cache.", show_alert=True)
                     else:
