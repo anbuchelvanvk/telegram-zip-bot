@@ -387,6 +387,7 @@ async def handle_docs(client: Client, message: Message):
 
 @app.on_callback_query()
 async def handle_callbacks(client: Client, query):
+    global queue_count
     data = query.data
     chat_id = query.message.chat.id
     
@@ -419,7 +420,6 @@ async def handle_callbacks(client: Client, query):
             await query.answer()
             
         elif action == "sendall":
-            global queue_count
             in_queue = False
             semaphore = get_semaphore()
             if semaphore.locked():
@@ -467,7 +467,6 @@ async def handle_callbacks(client: Client, query):
                     del extracted_sessions[chat_id][session_id]
 
         elif action == "sendfile":
-            global queue_count
             idx = int(parts[2])
             if idx < len(extracted_files):
                 in_queue = False
