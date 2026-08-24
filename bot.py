@@ -328,7 +328,7 @@ async def cache_zip_files(client: Client, chat_id: int, log_channel_id: int, ext
         try:
             await client.send_document(log_channel_id, ext_file, caption=caption)
             await asyncio.sleep(2)
-        except PeerIdInvalid:
+        except (PeerIdInvalid, ValueError):
             await force_resolve_peer(log_channel_id)
             try:
                 await client.send_document(log_channel_id, ext_file, caption=caption)
@@ -372,7 +372,7 @@ async def handle_docs(client: Client, message: Message):
                     async for msg in client.search_messages(LOG_CHANNEL_ID, query=f"#ZIP_{file_unique_id}"):
                         if msg.document or msg.audio or msg.video:
                             cached_msgs.append(msg)
-                except PeerIdInvalid:
+                except (PeerIdInvalid, ValueError):
                     await force_resolve_peer(LOG_CHANNEL_ID)
                     try:
                         async for msg in client.search_messages(LOG_CHANNEL_ID, query=f"#ZIP_{file_unique_id}"):
@@ -608,7 +608,7 @@ async def handle_callbacks(client: Client, query):
                         try:
                             await client.copy_message(chat_id, LOG_CHANNEL_ID, msg.id, reply_markup=InlineKeyboardMarkup(keyboard))
                             await asyncio.sleep(0.5)
-                        except PeerIdInvalid:
+                        except (PeerIdInvalid, ValueError):
                             await force_resolve_peer(LOG_CHANNEL_ID)
                             try:
                                 await client.copy_message(chat_id, LOG_CHANNEL_ID, msg.id, reply_markup=InlineKeyboardMarkup(keyboard))
@@ -676,7 +676,7 @@ async def handle_callbacks(client: Client, query):
                         try:
                             await client.copy_message(chat_id, LOG_CHANNEL_ID, msg.id, reply_markup=InlineKeyboardMarkup(keyboard))
                             await query.answer("✅ File forwarded from cache!")
-                        except PeerIdInvalid:
+                        except (PeerIdInvalid, ValueError):
                             await force_resolve_peer(LOG_CHANNEL_ID)
                             try:
                                 await client.copy_message(chat_id, LOG_CHANNEL_ID, msg.id, reply_markup=InlineKeyboardMarkup(keyboard))
