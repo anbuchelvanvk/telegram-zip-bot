@@ -294,7 +294,13 @@ async def progress(current, total, message: Message, text: str):
                 pass
 
 
-async def cleanup_session(client: Client, chat_id: int, session_id: str, message_id: int, user_temp_dir: str):
+async def cleanup_session(client: Client, chat_id: int, session_id: str, message_id: int, user_temp_dir: str, cache_task=None):
+    if cache_task:
+        try:
+            await cache_task
+        except Exception:
+            pass
+            
     await asyncio.sleep(120)
     if chat_id in extracted_sessions and session_id in extracted_sessions[chat_id]:
         shutil.rmtree(user_temp_dir, ignore_errors=True)
@@ -484,12 +490,13 @@ async def handle_docs(client: Client, message: Message):
                         reply_markup=reply_markup
                     )
                     
-                    # Schedule 2-minute cleanup
-                    asyncio.create_task(cleanup_session(client, chat_id, session_id, new_msg.id, user_temp_dir))
-                    
                     # Background cache
+                    cache_task = None
                     if LOG_CHANNEL_ID and file_unique_id:
-                        asyncio.create_task(cache_zip_files(client, LOG_CHANNEL_ID, extracted_files, file_unique_id))
+                        cache_task = asyncio.create_task(cache_zip_files(client, LOG_CHANNEL_ID, extracted_files, file_unique_id))
+                        
+                    # Schedule 2-minute cleanup
+                    asyncio.create_task(cleanup_session(client, chat_id, session_id, new_msg.id, user_temp_dir, cache_task))
                             
             except zipfile.BadZipFile:
                 await status_msg.delete()
