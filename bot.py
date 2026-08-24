@@ -27,8 +27,36 @@ app = Client(
     bot_token=BOT_TOKEN
 )
 
+from functools import wraps
+
 user_files = {}
 extracted_sessions = {}
+
+processing_semaphore = None
+queue_count = 0
+
+def get_semaphore():
+    global processing_semaphore
+    if processing_semaphore is None:
+        processing_semaphore = asyncio.Semaphore(2)
+    return processing_semaphore
+
+def queue_task(func):
+    @wraps(func)
+    async def wrapper(client, message, *args, **kwargs):
+        global queue_count
+        semaphore = get_semaphore()
+        queue_msg = None
+        if semaphore.locked():
+            queue_count += 1
+            queue_msg = await message.reply_text(f"⏳ **Server Busy!**\nBoth slots are in use. You are at position **#{queue_count}** in the queue. Please wait...")
+        async with semaphore:
+            if queue_msg:
+                queue_count -= 1
+                try: await queue_msg.delete()
+                except Exception: pass
+            return await func(client, message, *args, **kwargs)
+    return wrapper
 
 TEMP_DIR = "temp_files"
 os.makedirs(TEMP_DIR, exist_ok=True)
@@ -100,6 +128,7 @@ async def clear_files(client: Client, message: Message):
 
 
 @app.on_message(filters.command("zip"))
+@queue_task
 async def zip_files_command(client: Client, message: Message):
     if not await check_force_sub(client, message):
         return
@@ -143,6 +172,7 @@ async def zip_files_command(client: Client, message: Message):
 
 
 @app.on_message(filters.command("merge"))
+@queue_task
 async def merge_files_command(client: Client, message: Message):
     if not await check_force_sub(client, message):
         return
@@ -226,6 +256,7 @@ async def cleanup_session(client: Client, chat_id: int, session_id: str, message
             pass
 
 @app.on_message(filters.document | filters.photo | filters.audio | filters.video)
+@queue_task
 async def handle_docs(client: Client, message: Message):
     if not await check_force_sub(client, message):
         return
@@ -388,48 +419,21 @@ async def handle_callbacks(client: Client, query):
             await query.answer()
             
         elif action == "sendall":
-            await query.message.edit_text(f"📤 Uploading all {len(extracted_files)} files...")
-            for i, ext_file in enumerate(extracted_files):
-                if not os.path.exists(ext_file):
-                    continue
-                    
-                dir_name = os.path.dirname(ext_file)
-                base_name = os.path.basename(ext_file)
-                if not base_name.startswith("@QualityPixels - "):
-                    new_name = f"@QualityPixels - {base_name}"
-                    new_path = os.path.join(dir_name, new_name)
-                    os.rename(ext_file, new_path)
-                    ext_file = new_path
-                    extracted_files[i] = new_path
-                    
-                base, ext = os.path.splitext(os.path.basename(ext_file))
-                ext_clean = ext.replace('.', '').upper()
-                caption = f"**👉🏽 {base}**\n**👉🏽 File Type: {ext_clean}**"
-                
-                up_msg = await query.message.reply_text(f"📤 Uploading {os.path.basename(ext_file)}...")
-                try:
-                    await client.send_document(
-                        chat_id, 
-                        ext_file,
-                        caption=caption,
-                        reply_markup=share_markup,
-                        progress=progress,
-                        progress_args=(up_msg, f"📤 Uploading {os.path.basename(ext_file)}...")
-                    )
-                except Exception as e:
-                    print(f"Upload error: {e}")
-                await up_msg.delete()
-            
-            await query.message.edit_text("✅ All files uploaded!")
-            shutil.rmtree(user_temp_dir, ignore_errors=True)
-            if session_id in extracted_sessions.get(chat_id, {}):
-                del extracted_sessions[chat_id][session_id]
-
-        elif action == "sendfile":
-            idx = int(parts[2])
-            if idx < len(extracted_files):
-                ext_file = extracted_files[idx]
-                if os.path.exists(ext_file):
+            global queue_count
+            in_queue = False
+            semaphore = get_semaphore()
+            if semaphore.locked():
+                in_queue = True
+                queue_count += 1
+                await query.answer(f"⏳ Server busy! You are at position #{queue_count} in the queue. Please wait...", show_alert=True)
+            async with semaphore:
+                if in_queue:
+                    queue_count -= 1
+                await query.message.edit_text(f"📤 Uploading all {len(extracted_files)} files...")
+                for i, ext_file in enumerate(extracted_files):
+                    if not os.path.exists(ext_file):
+                        continue
+                        
                     dir_name = os.path.dirname(ext_file)
                     base_name = os.path.basename(ext_file)
                     if not base_name.startswith("@QualityPixels - "):
@@ -437,7 +441,7 @@ async def handle_callbacks(client: Client, query):
                         new_path = os.path.join(dir_name, new_name)
                         os.rename(ext_file, new_path)
                         ext_file = new_path
-                        extracted_files[idx] = new_path
+                        extracted_files[i] = new_path
                         
                     base, ext = os.path.splitext(os.path.basename(ext_file))
                     ext_clean = ext.replace('.', '').upper()
@@ -456,9 +460,56 @@ async def handle_callbacks(client: Client, query):
                     except Exception as e:
                         print(f"Upload error: {e}")
                     await up_msg.delete()
-                    await query.answer("✅ File uploaded!")
-                else:
-                    await query.answer("⚠️ File not found. It might have been deleted.", show_alert=True)
+                
+                await query.message.edit_text("✅ All files uploaded!")
+                shutil.rmtree(user_temp_dir, ignore_errors=True)
+                if session_id in extracted_sessions.get(chat_id, {}):
+                    del extracted_sessions[chat_id][session_id]
+
+        elif action == "sendfile":
+            global queue_count
+            idx = int(parts[2])
+            if idx < len(extracted_files):
+                in_queue = False
+                semaphore = get_semaphore()
+                if semaphore.locked():
+                    in_queue = True
+                    queue_count += 1
+                    await query.answer(f"⏳ Server busy! You are at position #{queue_count} in the queue. Please wait...", show_alert=True)
+                async with semaphore:
+                    if in_queue:
+                        queue_count -= 1
+                    ext_file = extracted_files[idx]
+                    if os.path.exists(ext_file):
+                        dir_name = os.path.dirname(ext_file)
+                        base_name = os.path.basename(ext_file)
+                        if not base_name.startswith("@QualityPixels - "):
+                            new_name = f"@QualityPixels - {base_name}"
+                            new_path = os.path.join(dir_name, new_name)
+                            os.rename(ext_file, new_path)
+                            ext_file = new_path
+                            extracted_files[idx] = new_path
+                            
+                        base, ext = os.path.splitext(os.path.basename(ext_file))
+                        ext_clean = ext.replace('.', '').upper()
+                        caption = f"**👉🏽 {base}**\n**👉🏽 File Type: {ext_clean}**"
+                        
+                        up_msg = await query.message.reply_text(f"📤 Uploading {os.path.basename(ext_file)}...")
+                        try:
+                            await client.send_document(
+                                chat_id, 
+                                ext_file,
+                                caption=caption,
+                                reply_markup=share_markup,
+                                progress=progress,
+                                progress_args=(up_msg, f"📤 Uploading {os.path.basename(ext_file)}...")
+                            )
+                        except Exception as e:
+                            print(f"Upload error: {e}")
+                        await up_msg.delete()
+                        await query.answer("✅ File uploaded!")
+                    else:
+                        await query.answer("⚠️ File not found. It might have been deleted.", show_alert=True)
             else:
                 await query.answer("⚠️ Invalid file selection.", show_alert=True)
 
