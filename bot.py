@@ -70,6 +70,13 @@ def queue_task(func):
 TEMP_DIR = "temp_files"
 os.makedirs(TEMP_DIR, exist_ok=True)
 
+db_loaded = False
+async def ensure_db(client: Client):
+    global db_loaded
+    if not db_loaded and LOG_CHANNEL_ID:
+        import db
+        await db.download_db(client, LOG_CHANNEL_ID)
+        db_loaded = True
 
 async def force_resolve_peer(chat_id):
     if not isinstance(chat_id, int):
@@ -317,6 +324,7 @@ async def cleanup_session(client: Client, chat_id: int, session_id: str, message
 async def cache_zip_files(client: Client, chat_id: int, log_channel_id: int, extracted_files: list, file_unique_id: str):
     if not log_channel_id or not file_unique_id:
         return
+    msg_ids = []
     for ext_file in extracted_files:
         if not os.path.exists(ext_file):
             continue
@@ -326,12 +334,14 @@ async def cache_zip_files(client: Client, chat_id: int, log_channel_id: int, ext
         caption = f"**👉🏽 {base}**\n**👉🏽 File Type: {ext_clean}**\n\n#ZIP_{file_unique_id}"
         
         try:
-            await client.send_document(log_channel_id, ext_file, caption=caption)
+            msg = await client.send_document(log_channel_id, ext_file, caption=caption)
+            msg_ids.append(msg.id)
             await asyncio.sleep(2)
         except (PeerIdInvalid, ValueError):
             await force_resolve_peer(log_channel_id)
             try:
-                await client.send_document(log_channel_id, ext_file, caption=caption)
+                msg = await client.send_document(log_channel_id, ext_file, caption=caption)
+                msg_ids.append(msg.id)
                 await asyncio.sleep(2)
             except Exception as e:
                 try: await client.send_message(chat_id, f"⚠️ Cache Error (After Resolve): {type(e).__name__} - {e}")
@@ -339,6 +349,13 @@ async def cache_zip_files(client: Client, chat_id: int, log_channel_id: int, ext
         except Exception as e:
             try: await client.send_message(chat_id, f"⚠️ Cache Error: {type(e).__name__} - {e}")
             except Exception: pass
+            
+    if msg_ids:
+        try:
+            import db
+            await db.save_cached_msgs(client, log_channel_id, file_unique_id, msg_ids)
+        except Exception as e:
+            print(f"Failed to save to db: {e}")
 
 
 @app.on_message(filters.document | filters.photo | filters.audio | filters.video)
@@ -369,19 +386,25 @@ async def handle_docs(client: Client, message: Message):
                 status_msg = await message.reply_text("🔍 Checking cache...")
                 cached_msgs = []
                 try:
-                    async for msg in client.search_messages(LOG_CHANNEL_ID, query=f"#ZIP_{file_unique_id}"):
-                        if msg.document or msg.audio or msg.video:
-                            cached_msgs.append(msg)
-                except (PeerIdInvalid, ValueError):
-                    await force_resolve_peer(LOG_CHANNEL_ID)
-                    try:
-                        async for msg in client.search_messages(LOG_CHANNEL_ID, query=f"#ZIP_{file_unique_id}"):
-                            if msg.document or msg.audio or msg.video:
-                                cached_msgs.append(msg)
-                    except Exception as e:
-                        print(f"Cache search error after resolve: {e}")
+                    await ensure_db(client)
+                    import db
+                    cached_msg_ids = db.get_cached_msgs(file_unique_id)
+                    if cached_msg_ids:
+                        try:
+                            raw_msgs = await client.get_messages(LOG_CHANNEL_ID, cached_msg_ids)
+                            if not isinstance(raw_msgs, list): raw_msgs = [raw_msgs]
+                            for msg in raw_msgs:
+                                if msg and not msg.empty and (msg.document or msg.audio or msg.video):
+                                    cached_msgs.append(msg)
+                        except (PeerIdInvalid, ValueError):
+                            await force_resolve_peer(LOG_CHANNEL_ID)
+                            raw_msgs = await client.get_messages(LOG_CHANNEL_ID, cached_msg_ids)
+                            if not isinstance(raw_msgs, list): raw_msgs = [raw_msgs]
+                            for msg in raw_msgs:
+                                if msg and not msg.empty and (msg.document or msg.audio or msg.video):
+                                    cached_msgs.append(msg)
                 except Exception as e:
-                    print(f"Cache search error: {e}")
+                    print(f"Cache lookup error: {e}")
                     
                 if cached_msgs:
                     await status_msg.delete()
