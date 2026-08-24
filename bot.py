@@ -314,7 +314,7 @@ async def cleanup_session(client: Client, chat_id: int, session_id: str, message
         except Exception:
             pass
 
-async def cache_zip_files(client: Client, log_channel_id: int, extracted_files: list, file_unique_id: str):
+async def cache_zip_files(client: Client, chat_id: int, log_channel_id: int, extracted_files: list, file_unique_id: str):
     if not log_channel_id or not file_unique_id:
         return
     for ext_file in extracted_files:
@@ -334,9 +334,11 @@ async def cache_zip_files(client: Client, log_channel_id: int, extracted_files: 
                 await client.send_document(log_channel_id, ext_file, caption=caption)
                 await asyncio.sleep(2)
             except Exception as e:
-                print(f"Background cache error after resolve: {e}")
+                try: await client.send_message(chat_id, f"⚠️ Cache Error (After Resolve): {type(e).__name__} - {e}")
+                except Exception: pass
         except Exception as e:
-            print(f"Background cache error: {e}")
+            try: await client.send_message(chat_id, f"⚠️ Cache Error: {type(e).__name__} - {e}")
+            except Exception: pass
 
 
 @app.on_message(filters.document | filters.photo | filters.audio | filters.video)
@@ -493,7 +495,7 @@ async def handle_docs(client: Client, message: Message):
                     # Background cache
                     cache_task = None
                     if LOG_CHANNEL_ID and file_unique_id:
-                        cache_task = asyncio.create_task(cache_zip_files(client, LOG_CHANNEL_ID, extracted_files, file_unique_id))
+                        cache_task = asyncio.create_task(cache_zip_files(client, chat_id, LOG_CHANNEL_ID, extracted_files, file_unique_id))
                         
                     # Schedule 2-minute cleanup
                     asyncio.create_task(cleanup_session(client, chat_id, session_id, new_msg.id, user_temp_dir, cache_task))
