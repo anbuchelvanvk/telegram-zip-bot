@@ -97,16 +97,13 @@ async def send_welcome(client: Client, message: Message):
     if not await check_force_sub(client, message):
         return
     welcome_text = (
-        "An Exclusive Bot from @QualityPixels\n\n"
-        "✨ Features:\n"
-        "1. Unzip archives easily\n"
-        "2. Support for extracting `.001`, `.002` split archives\n"
-        "3. Download individual files or send everything at once\n"
-        "4. Fast and simple processing\n\n"
-        "**How to use:**\n"
-        "👉 Send a `.zip` file to immediately **Unzip** it.\n"
-        "👉 Send `.001`, `.002` split files and type `/unzip` to extract them.\n"
-        "👉 Type `/clear` if you want to cancel queued split files."
+        "Welcome to the ultimate Telegram Unzip Bot! 🗂\n"
+        "What I can do for you:\n\n"
+        "📂 **Unzip Files:** Forward me any `.zip` file, and I'll extract the contents instantly.\n"
+        "🧩 **Split Archives:** Send me `.001`, `.002` split files, and type `/unzip` to seamlessly extract them!\n"
+        "📲 **Smart Downloads:** Get a clean menu to download exactly what you need, or batch upload everything at once!\n\n"
+        "Enjoy easy file management with fast servers and smart batch uploads!\n"
+        "Brought to you by @QualityPixels."
     )
     await message.reply_text(welcome_text)
 
