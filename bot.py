@@ -194,7 +194,14 @@ async def unzip_split_command(client: Client, message: Message):
             extracted_files = []
             for root, dirs, files in os.walk(user_temp_dir):
                 for file in files:
-                    extracted_files.append(os.path.join(root, file))
+                    ext_file = os.path.join(root, file)
+                    base_name = os.path.basename(ext_file)
+                    if not base_name.startswith("@QualityPixels - "):
+                        new_name = f"@QualityPixels - {base_name}"
+                        new_path = os.path.join(root, new_name)
+                        os.rename(ext_file, new_path)
+                        ext_file = new_path
+                    extracted_files.append(ext_file)
             
             if not extracted_files:
                 await status_msg.delete()
@@ -284,15 +291,6 @@ async def cache_zip_files(client: Client, log_channel_id: int, extracted_files: 
     for ext_file in extracted_files:
         if not os.path.exists(ext_file):
             continue
-            
-        dir_name = os.path.dirname(ext_file)
-        base_name = os.path.basename(ext_file)
-        
-        if not base_name.startswith("@QualityPixels - "):
-            new_name = f"@QualityPixels - {base_name}"
-            new_path = os.path.join(dir_name, new_name)
-            os.rename(ext_file, new_path)
-            ext_file = new_path
             
         base, ext = os.path.splitext(os.path.basename(ext_file))
         ext_clean = ext.replace('.', '').upper()
@@ -403,7 +401,14 @@ async def handle_docs(client: Client, message: Message):
                 extracted_files = []
                 for root, dirs, files in os.walk(user_temp_dir):
                     for file in files:
-                        extracted_files.append(os.path.join(root, file))
+                        ext_file = os.path.join(root, file)
+                        base_name = os.path.basename(ext_file)
+                        if not base_name.startswith("@QualityPixels - "):
+                            new_name = f"@QualityPixels - {base_name}"
+                            new_path = os.path.join(root, new_name)
+                            os.rename(ext_file, new_path)
+                            ext_file = new_path
+                        extracted_files.append(ext_file)
                 
                 if not extracted_files:
                     await status_msg.delete()
@@ -562,14 +567,6 @@ async def handle_callbacks(client: Client, query):
                         if not os.path.exists(ext_file):
                             continue
                             
-                        dir_name = os.path.dirname(ext_file)
-                        base_name = os.path.basename(ext_file)
-                        if not base_name.startswith("@QualityPixels - "):
-                            new_name = f"@QualityPixels - {base_name}"
-                            new_path = os.path.join(dir_name, new_name)
-                            os.rename(ext_file, new_path)
-                            ext_file = new_path
-                            
                         base, ext = os.path.splitext(os.path.basename(ext_file))
                         ext_clean = ext.replace('.', '').upper()
                         caption = f"**👉🏽 {base}**\n**👉🏽 File Type: {ext_clean}**"
@@ -631,15 +628,6 @@ async def handle_callbacks(client: Client, query):
                     else:
                         ext_file = extracted_files[idx]
                         if os.path.exists(ext_file):
-                            dir_name = os.path.dirname(ext_file)
-                            base_name = os.path.basename(ext_file)
-                            if not base_name.startswith("@QualityPixels - "):
-                                new_name = f"@QualityPixels - {base_name}"
-                                new_path = os.path.join(dir_name, new_name)
-                                os.rename(ext_file, new_path)
-                                ext_file = new_path
-                                extracted_files[idx] = new_path
-                                
                             base, ext = os.path.splitext(os.path.basename(ext_file))
                             ext_clean = ext.replace('.', '').upper()
                             caption = f"**👉🏽 {base}**\n**👉🏽 File Type: {ext_clean}**"
