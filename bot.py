@@ -85,7 +85,6 @@ async def http_send_document(chat_id, document_path, caption):
         data = aiohttp.FormData()
         data.add_field("chat_id", str(chat_id))
         data.add_field("caption", caption)
-        data.add_field("parse_mode", "Markdown")
         data.add_field("document", open(document_path, "rb"))
         async with session.post(url, data=data) as resp:
             res = await resp.json()
