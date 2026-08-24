@@ -4,15 +4,17 @@ import shutil
 import asyncio
 import threading
 import logging
-logging.basicConfig(level=logging.INFO)
 import re
 import aiohttp
+import db
+from functools import wraps
 from aiohttp import web
 from pyrogram import Client, filters, enums
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from pyrogram.errors import UserNotParticipant, PeerIdInvalid
 from dotenv import load_dotenv
 
+logging.basicConfig(level=logging.INFO)
 load_dotenv()
 
 # Telegram Credentials
@@ -74,7 +76,6 @@ db_loaded = False
 async def ensure_db(client: Client):
     global db_loaded
     if not db_loaded and LOG_CHANNEL_ID:
-        import db
         await db.download_db(client, LOG_CHANNEL_ID)
         db_loaded = True
 
@@ -352,7 +353,6 @@ async def cache_zip_files(client: Client, chat_id: int, log_channel_id: int, ext
             
     if msg_ids:
         try:
-            import db
             await db.save_cached_msgs(client, log_channel_id, file_unique_id, msg_ids)
         except Exception as e:
             print(f"Failed to save to db: {e}")
@@ -387,7 +387,6 @@ async def handle_docs(client: Client, message: Message):
                 cached_msgs = []
                 try:
                     await ensure_db(client)
-                    import db
                     cached_msg_ids = db.get_cached_msgs(file_unique_id)
                     if cached_msg_ids:
                         try:
