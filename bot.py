@@ -445,13 +445,22 @@ async def handle_callbacks(client: Client, query):
                     ext_clean = ext.replace('.', '').upper()
                     caption = f"**👉🏽 {base}**\n**👉🏽 File Type: {ext_clean}**"
                     
+                    import urllib.parse
+                    share_text = urllib.parse.quote(f"Listen to {base} on @QualityPixels!")
+                    file_share_url = f"https://t.me/share/url?url=https://t.me/QualityPixels&text={share_text}"
+                    
+                    file_markup = InlineKeyboardMarkup([
+                        [InlineKeyboardButton("📢 Share QualityPixels", url="https://t.me/share/url?url=https://t.me/QualityPixels&text=Join%20QualityPixels%20for%20more%20awesome%20content!")],
+                        [InlineKeyboardButton("🔗 Share this file", url=file_share_url)]
+                    ])
+                    
                     up_msg = await query.message.reply_text(f"📤 Uploading {os.path.basename(ext_file)}...")
                     try:
                         await client.send_document(
                             chat_id, 
                             ext_file,
                             caption=caption,
-                            reply_markup=share_markup,
+                            reply_markup=file_markup,
                             progress=progress,
                             progress_args=(up_msg, f"📤 Uploading {os.path.basename(ext_file)}...")
                         )
@@ -492,13 +501,22 @@ async def handle_callbacks(client: Client, query):
                         ext_clean = ext.replace('.', '').upper()
                         caption = f"**👉🏽 {base}**\n**👉🏽 File Type: {ext_clean}**"
                         
+                        import urllib.parse
+                        share_text = urllib.parse.quote(f"Listen to {base} on @QualityPixels!")
+                        file_share_url = f"https://t.me/share/url?url=https://t.me/QualityPixels&text={share_text}"
+                        
+                        file_markup = InlineKeyboardMarkup([
+                            [InlineKeyboardButton("📢 Share QualityPixels", url="https://t.me/share/url?url=https://t.me/QualityPixels&text=Join%20QualityPixels%20for%20more%20awesome%20content!")],
+                            [InlineKeyboardButton("🔗 Share this file", url=file_share_url)]
+                        ])
+                        
                         up_msg = await query.message.reply_text(f"📤 Uploading {os.path.basename(ext_file)}...")
                         try:
                             await client.send_document(
                                 chat_id, 
                                 ext_file,
                                 caption=caption,
-                                reply_markup=share_markup,
+                                reply_markup=file_markup,
                                 progress=progress,
                                 progress_args=(up_msg, f"📤 Uploading {os.path.basename(ext_file)}...")
                             )
