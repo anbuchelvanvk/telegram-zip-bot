@@ -5,6 +5,7 @@ import asyncio
 import threading
 import logging
 logging.basicConfig(level=logging.INFO)
+import re
 from aiohttp import web
 from pyrogram import Client, filters, enums
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
@@ -29,6 +30,7 @@ app = Client(
 
 from functools import wraps
 
+user_files = {}
 extracted_sessions = {}
 
 processing_semaphore = None
@@ -98,13 +100,119 @@ async def send_welcome(client: Client, message: Message):
         "An Exclusive Bot from @QualityPixels\n\n"
         "✨ Features:\n"
         "1. Unzip archives easily\n"
-        "2. Send any `.zip` file to immediately extract it\n"
+        "2. Support for extracting `.001`, `.002` split archives\n"
         "3. Download individual files or send everything at once\n"
         "4. Fast and simple processing\n\n"
         "**How to use:**\n"
-        "👉 Simply send a `.zip` file to the bot and it will Unzip it for you!"
+        "👉 Send a `.zip` file to immediately **Unzip** it.\n"
+        "👉 Send `.001`, `.002` split files and type `/unzip` to extract them.\n"
+        "👉 Type `/clear` if you want to cancel queued split files."
     )
     await message.reply_text(welcome_text)
+
+@app.on_message(filters.command("clear"))
+async def clear_files(client: Client, message: Message):
+    if not await check_force_sub(client, message):
+        return
+    chat_id = message.chat.id
+    if chat_id in user_files and user_files[chat_id]:
+        for file_path in user_files[chat_id]:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+        user_files[chat_id] = []
+        await message.reply_text("🗑 Cleared your pending split files.")
+    else:
+        await message.reply_text("You don't have any pending split files.")
+
+@app.on_message(filters.command("unzip"))
+@queue_task
+async def unzip_split_command(client: Client, message: Message):
+    if not await check_force_sub(client, message):
+        return
+    chat_id = message.chat.id
+    if chat_id not in user_files or len(user_files[chat_id]) < 1:
+        await message.reply_text("⚠️ You need to queue split files (like .001, .002) before running /unzip.")
+        return
+
+    status_msg = await message.reply_text("🔄 Merging split files internally for extraction...")
+    
+    # Sort files alphabetically to ensure .001, .002, etc. are ordered
+    files_to_merge = sorted(user_files[chat_id])
+    
+    user_temp_dir = os.path.join(TEMP_DIR, f"unzip_split_{chat_id}_{message.id}")
+    os.makedirs(user_temp_dir, exist_ok=True)
+    
+    merged_zip = os.path.join(user_temp_dir, "merged.zip")
+    
+    try:
+        with open(merged_zip, 'wb') as outfile:
+            for file_path in files_to_merge:
+                if os.path.exists(file_path):
+                    with open(file_path, 'rb') as infile:
+                        shutil.copyfileobj(infile, outfile)
+                        
+        await status_msg.edit_text("📦 Extracting files from split archive...")
+        
+        try:
+            with zipfile.ZipFile(merged_zip, 'r') as zip_ref:
+                zip_ref.extractall(user_temp_dir)
+            
+            os.remove(merged_zip)
+            
+            extracted_files = []
+            for root, dirs, files in os.walk(user_temp_dir):
+                for file in files:
+                    extracted_files.append(os.path.join(root, file))
+            
+            if not extracted_files:
+                await status_msg.edit_text("⚠️ The split archive was empty.")
+                shutil.rmtree(user_temp_dir, ignore_errors=True)
+            else:
+                session_id = str(message.id)
+                if chat_id not in extracted_sessions:
+                    extracted_sessions[chat_id] = {}
+                
+                extracted_sessions[chat_id][session_id] = {
+                    "dir": user_temp_dir,
+                    "files": extracted_files
+                }
+                
+                keyboard = []
+                keyboard.append([InlineKeyboardButton("📤 Send All Files", callback_data=f"sendall_{session_id}")])
+                
+                # Limit to 50 files to avoid telegram limit on buttons
+                for idx, ext_file in enumerate(extracted_files[:50]):
+                    filename = os.path.basename(ext_file)
+                    keyboard.append([InlineKeyboardButton(filename, callback_data=f"sendfile_{session_id}_{idx}")])
+                
+                if len(extracted_files) > 50:
+                    keyboard.append([InlineKeyboardButton(f"...and {len(extracted_files)-50} more", callback_data="ignore")])
+                    
+                keyboard.append([InlineKeyboardButton("❌ Cancel & Delete", callback_data=f"cancelzip_{session_id}")])
+                
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await status_msg.edit_text(
+                    f"✅ Extracted {len(extracted_files)} files.\n\n"
+                    f"⚠️ **Note:** Files will be automatically deleted after 2 minutes of inactivity.\n\n"
+                    f"Select what to download:", 
+                    reply_markup=reply_markup
+                )
+                
+                # Schedule 2-minute cleanup
+                asyncio.create_task(cleanup_session(client, chat_id, session_id, status_msg.id, user_temp_dir))
+                        
+        except zipfile.BadZipFile:
+            await status_msg.edit_text("❌ The merged file is not a valid zip archive.")
+            shutil.rmtree(user_temp_dir, ignore_errors=True)
+            
+    except Exception as e:
+        await status_msg.edit_text(f"❌ Error unzipping split files: {e}")
+        shutil.rmtree(user_temp_dir, ignore_errors=True)
+    finally:
+        for file_path in user_files.get(chat_id, []):
+            if os.path.exists(file_path):
+                os.remove(file_path)
+        user_files[chat_id] = []
 
 
 # Function to track download/upload progress
@@ -228,7 +336,40 @@ async def handle_docs(client: Client, message: Message):
                 shutil.rmtree(user_temp_dir, ignore_errors=True)
                 
         else:
-            await message.reply_text(f"❌ I only accept `.zip` archives. Please send a `.zip` file!")
+            is_split = re.search(r'\.\d{3}$', file_name.lower()) is not None
+            if is_split:
+                status_msg = await message.reply_text(f"📥 Downloading split file `{file_name}`...")
+                
+                user_dir = os.path.join(TEMP_DIR, f"user_{chat_id}")
+                os.makedirs(user_dir, exist_ok=True)
+                
+                save_path = os.path.join(user_dir, file_name)
+                
+                base, ext = os.path.splitext(save_path)
+                counter = 1
+                while os.path.exists(save_path):
+                    save_path = f"{base}_{counter}{ext}"
+                    counter += 1
+                    
+                await client.download_media(
+                    message, 
+                    file_name=save_path,
+                    progress=progress,
+                    progress_args=(status_msg, f"📥 Downloading `{os.path.basename(save_path)}`...")
+                )
+                    
+                if chat_id not in user_files:
+                    user_files[chat_id] = []
+                
+                user_files[chat_id].append(save_path)
+                
+                await status_msg.edit_text(
+                    f"✅ Saved `{os.path.basename(save_path)}`.\n"
+                    f"Total split files queued: {len(user_files[chat_id])}.\n"
+                    f"Send more parts, then type `/unzip` to extract them!"
+                )
+            else:
+                await message.reply_text(f"❌ I only accept `.zip` or `.001` split archives. Please send a valid archive file!")
             
     except Exception as e:
         await message.reply_text(f"❌ An error occurred: {e}")
